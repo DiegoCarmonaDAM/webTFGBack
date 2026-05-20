@@ -52,7 +52,8 @@ namespace webTFGBack.Controllers
                 id_trabajador = trabajador.id_trabajador,
                 rol = trabajador.rol,
                 nombre = persona.nombre,
-                email = persona.email
+                email = persona.email,
+                id_gym = trabajador.id_gym
             });
         }
 
