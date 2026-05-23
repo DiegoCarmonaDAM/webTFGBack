@@ -50,7 +50,7 @@ if (app.Environment.IsDevelopment())
 
 app.UseCors("AllowVue");
 
-//app.UseHttpsRedirection();    // PRODUCCIÓN — activo
+app.UseHttpsRedirection();    // PRODUCCIÓN — activo
 
 app.UseAuthorization();
 
