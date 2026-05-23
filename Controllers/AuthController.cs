@@ -41,6 +41,7 @@ namespace webTFGBack.Controllers
 
             // 3 — Verificar que es Trabajador
             var trabajador = await _context.Trabajador
+                .Include(t => t.Gym)            
                 .FirstOrDefaultAsync(t => t.id_persona == persona.id_persona);
 
             if (trabajador == null)
@@ -52,7 +53,9 @@ namespace webTFGBack.Controllers
                 id_trabajador = trabajador.id_trabajador,
                 rol = trabajador.rol,
                 nombre = persona.nombre,
-                email = persona.email
+                email = persona.email,
+                id_gym = trabajador.id_gym,                   
+                id_compania = trabajador.Gym!.id_compania          
             });
         }
 

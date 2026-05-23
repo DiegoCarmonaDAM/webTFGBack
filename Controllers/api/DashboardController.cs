@@ -11,40 +11,54 @@ namespace webTFGBack.Controllers
         private readonly AppDbContext _context;
         public DashboardController(AppDbContext context) => _context = context;
 
-        // GET api/dashboard/stats
+        // Valida que el gym pertenece a la compañía recibida
+        private async Task<bool> GymPerteneceACompania(int idGym, int idCompania) =>
+            await _context.Gym.AnyAsync(g => g.id_gym == idGym && g.id_compania == idCompania);
+
+        // GET api/dashboard/stats?idGym=1&idCompania=1
         [HttpGet("stats")]
-        public async Task<IActionResult> GetStats()
+        public async Task<IActionResult> GetStats([FromQuery] int idGym, [FromQuery] int idCompania)
         {
+            if (!await GymPerteneceACompania(idGym, idCompania))
+                return Forbid();
+
             var hoy = DateOnly.FromDateTime(DateTime.Today);
             var inicioMes = new DateOnly(hoy.Year, hoy.Month, 1);
 
-            var totalClientes = await _context.Cliente.CountAsync();
+            var totalClientes = await _context.Suscripcion
+                .Where(s => s.Plan!.id_compania == idCompania && s.estado == "activa")
+                .Select(s => s.id_cliente)
+                .Distinct()
+                .CountAsync();
 
-            // Suscripciones activas con precio (ingresos del mes = suscripciones iniciadas este mes)
             var ingresosMes = await _context.Suscripcion
-                .Include(s => s.Plan)
-                .Where(s => s.fecha_inicio >= inicioMes && s.fecha_inicio <= hoy)
+                .Where(s => s.Plan!.id_compania == idCompania
+                         && s.fecha_inicio >= inicioMes
+                         && s.fecha_inicio <= hoy)
                 .SumAsync(s => (decimal?)s.Plan!.precio) ?? 0;
 
             var vencenHoy = await _context.Suscripcion
-                .CountAsync(s => s.fecha_fin == hoy && s.estado == "activa");
+                .Where(s => s.Plan!.id_compania == idCompania
+                         && s.fecha_fin == hoy
+                         && s.estado == "activa")
+                .CountAsync();
 
             var altasMes = await _context.Suscripcion
-                .CountAsync(s => s.fecha_inicio >= inicioMes && s.fecha_inicio <= hoy);
+                .Where(s => s.Plan!.id_compania == idCompania
+                         && s.fecha_inicio >= inicioMes
+                         && s.fecha_inicio <= hoy)
+                .CountAsync();
 
-            return Ok(new
-            {
-                totalClientes,
-                ingresosMes,
-                vencenHoy,
-                altasMes
-            });
+            return Ok(new { totalClientes, ingresosMes, vencenHoy, altasMes });
         }
 
-        // GET api/dashboard/miembros-recientes
+        // GET api/dashboard/miembros-recientes?idGym=1&idCompania=1
         [HttpGet("miembros-recientes")]
-        public async Task<IActionResult> GetMiembrosRecientes()
+        public async Task<IActionResult> GetMiembrosRecientes([FromQuery] int idGym, [FromQuery] int idCompania)
         {
+            if (!await GymPerteneceACompania(idGym, idCompania))
+                return Forbid();
+
             var hoy = DateOnly.FromDateTime(DateTime.Today);
             var en7Dias = hoy.AddDays(7);
 
@@ -52,6 +66,7 @@ namespace webTFGBack.Controllers
                 .Include(c => c.Persona)
                 .Include(c => c.Suscripciones)
                     .ThenInclude(s => s.Plan)
+                .Where(c => c.Suscripciones.Any(s => s.Plan!.id_compania == idCompania))
                 .OrderByDescending(c => c.id_cliente)
                 .Take(8)
                 .Select(c => new
@@ -59,41 +74,42 @@ namespace webTFGBack.Controllers
                     id = c.id_cliente,
                     nombre = c.Persona!.nombre,
                     plan = c.Suscripciones
-                                 .Where(s => s.estado == "activa")
-                                 .OrderByDescending(s => s.fecha_inicio)
-                                 .Select(s => s.Plan!.nombre)
-                                 .FirstOrDefault() ?? "Sin plan",
-                    // "warning" si vence en <=7 días, "active" si no
+                               .Where(s => s.estado == "activa" && s.Plan!.id_compania == idCompania)
+                               .OrderByDescending(s => s.fecha_inicio)
+                               .Select(s => s.Plan!.nombre)
+                               .FirstOrDefault() ?? "Sin plan",
                     status = c.Suscripciones
-                                 .Any(s => s.estado == "activa" && s.fecha_fin <= en7Dias)
-                                 ? "warning" : "active"
+                               .Any(s => s.estado == "activa"
+                                      && s.Plan!.id_compania == idCompania
+                                      && s.fecha_fin <= en7Dias)
+                               ? "warning" : "active"
                 })
                 .ToListAsync();
 
             return Ok(miembros);
         }
 
-        // GET api/dashboard/ocupacion
+        // GET api/dashboard/ocupacion?idGym=1&idCompania=1
         [HttpGet("ocupacion")]
-        public async Task<IActionResult> GetOcupacion()
+        public async Task<IActionResult> GetOcupacion([FromQuery] int idGym, [FromQuery] int idCompania)
         {
-            // Personas con entrada hoy sin salida registrada = dentro del gym ahora mismo
+            if (!await GymPerteneceACompania(idGym, idCompania))
+                return Forbid();
+
             var hoyDt = DateTime.Today;
             var manyanaDt = hoyDt.AddDays(1);
 
             var dentro = await _context.RegistroEntrada
-                .CountAsync(r =>
-                    r.fecha_hora_entrada >= hoyDt &&
-                    r.fecha_hora_entrada < manyanaDt &&
-                    r.fecha_hora_salida == null);
+                .CountAsync(r => r.id_gym == idGym
+                              && r.fecha_hora_entrada >= hoyDt
+                              && r.fecha_hora_entrada < manyanaDt
+                              && r.fecha_hora_salida == null);
 
-            // Total de entradas hoy (para calcular % respecto al aforo)
             var totalHoy = await _context.RegistroEntrada
-                .CountAsync(r =>
-                    r.fecha_hora_entrada >= hoyDt &&
-                    r.fecha_hora_entrada < manyanaDt);
+                .CountAsync(r => r.id_gym == idGym
+                              && r.fecha_hora_entrada >= hoyDt
+                              && r.fecha_hora_entrada < manyanaDt);
 
-            // Aforo máximo configurable; si no hay datos usamos 100 para que el % tenga sentido
             int aforoMax = 100;
 
             return Ok(new

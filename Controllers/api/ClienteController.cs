@@ -12,7 +12,7 @@ namespace webTFGBack.Controllers
         private readonly AppDbContext _context;
         public ClienteController(AppDbContext context) => _context = context;
 
-        // GET api/cliente/{id}  — perfil completo para el modal (USADO POR LA WEB)
+        // GET api/cliente/{id}
         [HttpGet("{id}")]
         public async Task<IActionResult> GetById(int id)
         {
@@ -97,12 +97,11 @@ namespace webTFGBack.Controllers
         }
 
         // GET api/cliente/gym/{id_gym}
-        // Lista completa de clientes de la compañía del gym, con su estado
         [HttpGet("gym/{id_gym}")]
         public async Task<IActionResult> GetByGym(
             int id_gym,
-            [FromQuery] string? filtro,      // "activos" | "inactivos" | null = todos
-            [FromQuery] string? q,           // búsqueda por nombre/documento
+            [FromQuery] string? filtro,
+            [FromQuery] string? q,
             [FromQuery] int pagina = 1,
             [FromQuery] int tamano = 20)
         {
@@ -115,11 +114,10 @@ namespace webTFGBack.Controllers
             var query = _context.Cliente
                 .Include(c => c.Persona)
                 .Include(c => c.Suscripciones).ThenInclude(s => s.Plan)
-                .Where(c => c.Suscripciones.Any(s => s.Plan!.id_compania == gym.id_compania)
-                         || !c.Suscripciones.Any()) // incluye clientes sin suscripción de la compañía
+                // ← solo clientes con al menos una suscripción de esta compañía
+                .Where(c => c.Suscripciones.Any(s => s.Plan!.id_compania == gym.id_compania))
                 .AsQueryable();
 
-            // Filtro por nombre o documento
             if (!string.IsNullOrWhiteSpace(q))
                 query = query.Where(c =>
                     c.Persona!.nombre.Contains(q) ||
@@ -135,26 +133,33 @@ namespace webTFGBack.Controllers
                     email = c.Persona!.email,
                     telefono = c.Persona!.telefono,
                     plan_activo = c.Suscripciones
-                        .Where(s => s.estado == "activa" && s.fecha_fin >= hoy)
+                        .Where(s => s.estado == "activa"
+                                 && s.fecha_fin >= hoy
+                                 && s.Plan!.id_compania == gym.id_compania)  // ← filtro compañía
                         .OrderByDescending(s => s.fecha_fin)
                         .Select(s => s.Plan!.nombre)
                         .FirstOrDefault(),
                     fecha_fin = c.Suscripciones
-                        .Where(s => s.estado == "activa" && s.fecha_fin >= hoy)
+                        .Where(s => s.estado == "activa"
+                                 && s.fecha_fin >= hoy
+                                 && s.Plan!.id_compania == gym.id_compania)  // ← filtro compañía
                         .OrderByDescending(s => s.fecha_fin)
                         .Select(s => (DateOnly?)s.fecha_fin)
                         .FirstOrDefault(),
                     dias_restantes = c.Suscripciones
-                        .Where(s => s.estado == "activa" && s.fecha_fin >= hoy)
+                        .Where(s => s.estado == "activa"
+                                 && s.fecha_fin >= hoy
+                                 && s.Plan!.id_compania == gym.id_compania)  // ← filtro compañía
                         .OrderByDescending(s => s.fecha_fin)
                         .Select(s => (int?)(s.fecha_fin.DayNumber - hoy.DayNumber))
                         .FirstOrDefault(),
                     tiene_activa = c.Suscripciones
-                        .Any(s => s.estado == "activa" && s.fecha_fin >= hoy)
+                        .Any(s => s.estado == "activa"
+                               && s.fecha_fin >= hoy
+                               && s.Plan!.id_compania == gym.id_compania)    // ← filtro compañía
                 })
                 .ToListAsync();
 
-            // Aplicar filtro activos/inactivos
             var filtrados = filtro switch
             {
                 "activos" => todos.Where(c => c.tiene_activa).ToList(),
@@ -177,7 +182,6 @@ namespace webTFGBack.Controllers
                     c.tiene_activa,
                     c.dias_restantes,
                     fecha_fin = c.fecha_fin?.ToString("dd/MM/yyyy"),
-                    // aviso si vence en <=7 días
                     vence_pronto = c.tiene_activa && c.dias_restantes.HasValue && c.dias_restantes <= 7
                 })
                 .ToList();
@@ -284,7 +288,7 @@ namespace webTFGBack.Controllers
             return Ok(new { message = "Suscripción renovada correctamente" });
         }
 
-        // GET /api/cliente/perfil/{id}  (app móvil)
+        // GET /api/cliente/perfil/{id}
         [HttpGet("perfil/{id}")]
         public async Task<IActionResult> GetPerfilApp(int id)
         {
@@ -327,7 +331,7 @@ namespace webTFGBack.Controllers
             });
         }
 
-        // GET /api/cliente/{id}/entradas  (app móvil)
+        // GET /api/cliente/{id}/entradas
         [HttpGet("{id}/entradas")]
         public async Task<IActionResult> GetEntradasApp(int id)
         {
@@ -344,8 +348,8 @@ namespace webTFGBack.Controllers
                     id_registro = r.id_registro,
                     fecha_hora_entrada = r.fecha_hora_entrada.ToString("dd/MM/yyyy HH:mm"),
                     fecha_hora_salida = r.fecha_hora_salida.HasValue
-                                         ? r.fecha_hora_salida.Value.ToString("dd/MM/yyyy HH:mm")
-                                         : null
+                                          ? r.fecha_hora_salida.Value.ToString("dd/MM/yyyy HH:mm")
+                                          : null
                 })
                 .ToListAsync();
 

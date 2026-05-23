@@ -10,17 +10,17 @@ namespace webTFGBack.Controllers
     public class PlanController : ControllerBase
     {
         private readonly AppDbContext _context;
+        public PlanController(AppDbContext context) => _context = context;
 
-        public PlanController(AppDbContext context)
-        {
-            _context = context;
-        }
-
-        // GET api/plan
+        // GET api/plan?idCompania=1
         [HttpGet]
-        public async Task<IActionResult> GetPlanes()
+        public async Task<IActionResult> GetPlanes([FromQuery] int idCompania)
         {
+            if (idCompania == 0)
+                return BadRequest(new { message = "idCompania es obligatorio" });
+
             var planes = await _context.Plan
+                .Where(p => p.id_compania == idCompania)          // ← filtro añadido
                 .Select(p => new
                 {
                     id = p.id_plan,
@@ -61,16 +61,8 @@ namespace webTFGBack.Controllers
                 return BadRequest(new { message = "El precio debe ser mayor que 0" });
             if (dto.duracion_dias <= 0)
                 return BadRequest(new { message = "La duración debe ser mayor que 0" });
-
-            // Obtener id_compania del gym si no se manda
-            int idCompania = dto.id_compania;
-            if (idCompania == 0)
-            {
-                var gym = await _context.Gym.FirstOrDefaultAsync();
-                if (gym == null)
-                    return BadRequest(new { message = "No hay ningún gimnasio configurado" });
-                idCompania = gym.id_compania;
-            }
+            if (dto.id_compania == 0)
+                return BadRequest(new { message = "id_compania es obligatorio" });
 
             var plan = new Plan
             {
@@ -80,7 +72,7 @@ namespace webTFGBack.Controllers
                 total_accesos = dto.total_accesos,
                 tipo = dto.tipo?.Trim() ?? "",
                 isActive = true,
-                id_compania = idCompania
+                id_compania = dto.id_compania
             };
 
             _context.Plan.Add(plan);
@@ -99,7 +91,6 @@ namespace webTFGBack.Controllers
 
             plan.isActive = false;
             await _context.SaveChangesAsync();
-
             return Ok(new { message = "Plan desactivado correctamente" });
         }
 
@@ -113,12 +104,10 @@ namespace webTFGBack.Controllers
 
             plan.isActive = true;
             await _context.SaveChangesAsync();
-
             return Ok(new { message = "Plan activado correctamente" });
         }
 
         // DELETE api/plan/{id}
-        // Solo se puede borrar si está inactivo Y no tiene suscripciones activas
         [HttpDelete("{id}")]
         public async Task<IActionResult> DeletePlan(int id)
         {
@@ -129,7 +118,6 @@ namespace webTFGBack.Controllers
             if (plan.isActive)
                 return BadRequest(new { message = "Solo se pueden borrar planes inactivos. Desactívalo primero." });
 
-            // Bloqueamos solo si tiene suscripciones ACTIVAS (no el historial)
             bool tieneActivos = await _context.Suscripcion
                 .AnyAsync(s => s.id_plan == id && s.estado == "activa");
 
@@ -138,7 +126,6 @@ namespace webTFGBack.Controllers
 
             _context.Plan.Remove(plan);
             await _context.SaveChangesAsync();
-
             return Ok(new { message = "Plan eliminado correctamente" });
         }
     }
