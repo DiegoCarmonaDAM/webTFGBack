@@ -114,8 +114,8 @@ namespace webTFGBack.Controllers
             var query = _context.Cliente
                 .Include(c => c.Persona)
                 .Include(c => c.Suscripciones).ThenInclude(s => s.Plan)
-                // ← solo clientes con al menos una suscripción de esta compañía
-                .Where(c => c.Suscripciones.Any(s => s.Plan!.id_compania == gym.id_compania))
+               .Where(c => c.Suscripciones.Any(s => s.Plan!.id_compania == gym.id_compania)
+                 || !c.Suscripciones.Any())
                 .AsQueryable();
 
             if (!string.IsNullOrWhiteSpace(q))
@@ -135,7 +135,7 @@ namespace webTFGBack.Controllers
                     plan_activo = c.Suscripciones
                         .Where(s => s.estado == "activa"
                                  && s.fecha_fin >= hoy
-                                 && s.Plan!.id_compania == gym.id_compania)  // ← filtro compañía
+                                 && s.Plan!.id_compania == gym.id_compania)  
                         .OrderByDescending(s => s.fecha_fin)
                         .Select(s => s.Plan!.nombre)
                         .FirstOrDefault(),

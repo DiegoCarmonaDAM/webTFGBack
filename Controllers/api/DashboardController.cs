@@ -66,7 +66,8 @@ namespace webTFGBack.Controllers
                 .Include(c => c.Persona)
                 .Include(c => c.Suscripciones)
                     .ThenInclude(s => s.Plan)
-                .Where(c => c.Suscripciones.Any(s => s.Plan!.id_compania == idCompania))
+                .Where(c => c.Suscripciones.Any(s => s.Plan!.id_compania == idCompania)
+                || !c.Suscripciones.Any())
                 .OrderByDescending(c => c.id_cliente)
                 .Take(8)
                 .Select(c => new
