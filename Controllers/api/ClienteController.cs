@@ -402,6 +402,115 @@ namespace webTFGBack.Controllers
 
             return Ok(suscripciones);
         }
+
+        // GET /api/cliente/{id}/mis-gimnasios
+        [HttpGet("{id}/mis-gimnasios")]
+        public async Task<IActionResult> GetMisGimnasios(int id)
+        {
+            // 1. Obtener el cliente base y su DNI
+            var clienteBase = await _context.Cliente
+                .Include(c => c.Persona)
+                .FirstOrDefaultAsync(c => c.id_cliente == id);
+
+            if (clienteBase == null)
+                return NotFound(new { message = "Cliente no encontrado" });
+
+            var dni = clienteBase.Persona!.documento_identidad;
+
+            // 2. Buscar todas las Personas con ese DNI (cubre duplicados de BD)
+            var idPersonas = await _context.Persona
+                .Where(p => p.documento_identidad == dni)
+                .Select(p => p.id_persona)
+                .ToListAsync();
+
+            // 3. Obtener todos los Clientes de esas Personas con sus suscripciones
+            var clientes = await _context.Cliente
+                .Include(c => c.Suscripciones)
+                    .ThenInclude(s => s.Plan)
+                        .ThenInclude(p => p!.Compania)
+                .Where(c => idPersonas.Contains(c.id_persona))
+                .ToListAsync();
+
+            var hoy = DateOnly.FromDateTime(DateTime.Today);
+
+            // 4. Agrupar por Compania
+            var todasSus = clientes
+                .SelectMany(c => c.Suscripciones
+                    .Where(s => s.Plan?.Compania != null)
+                    .Select(s => new { cliente = c, suscripcion = s }))
+                .ToList();
+
+            var porCompania = todasSus
+                .GroupBy(x => x.suscripcion.Plan!.id_compania)
+                .ToList();
+
+            var resultado = new List<object>();
+
+            foreach (var grupo in porCompania)
+            {
+                var compania = grupo.First().suscripcion.Plan!.Compania!;
+                var clienteGr = grupo.First().cliente;
+
+                // IDs de todos los gyms de esta compañía
+                var gymIds = await _context.Gym
+                    .Where(g => g.id_compania == compania.id_compania)
+                    .Select(g => g.id_gym)
+                    .ToListAsync();
+
+                // Primer gym (para el id_gym de respuesta)
+                var idGymPrincipal = gymIds.FirstOrDefault();
+
+                // Suscripción activa de esta compañía
+                var susActiva = grupo
+                    .Select(x => x.suscripcion)
+                    .Where(s => s.estado == "activa" && s.fecha_fin >= hoy)
+                    .OrderByDescending(s => s.fecha_fin)
+                    .FirstOrDefault();
+
+                // Últimas 10 entradas del cliente en los gyms de esta compañía
+                var entradas = await _context.RegistroEntrada
+                    .Where(r => idPersonas.Contains(r.id_persona) && gymIds.Contains(r.id_gym))
+                    .OrderByDescending(r => r.fecha_hora_entrada)
+                    .Take(10)
+                    .Select(r => new
+                    {
+                        id_registro = r.id_registro,
+                        fecha_hora_entrada = r.fecha_hora_entrada.ToString("dd/MM/yyyy HH:mm"),
+                        fecha_hora_salida = r.fecha_hora_salida.HasValue
+                            ? r.fecha_hora_salida.Value.ToString("dd/MM/yyyy HH:mm")
+                            : null
+                    })
+                    .ToListAsync();
+
+                object? suscripcionObj = susActiva == null ? null : (object)new
+                {
+                    id = susActiva.id_suscripcion,
+                    plan = susActiva.Plan!.nombre,
+                    tipo = susActiva.Plan!.tipo,
+                    precio = susActiva.Plan!.precio,
+                    fecha_inicio = susActiva.fecha_inicio.ToString("dd/MM/yyyy"),
+                    fecha_fin = susActiva.fecha_fin.ToString("dd/MM/yyyy"),
+                    accesos = susActiva.accesos_restantes,
+                    estado = susActiva.estado,
+                    dias_restantes = susActiva.fecha_fin >= hoy
+                        ? susActiva.fecha_fin.DayNumber - hoy.DayNumber
+                        : 0
+                };
+
+                resultado.Add(new
+                {
+                    id_cliente = clienteGr.id_cliente,
+                    id_compania = compania.id_compania,
+                    id_gym = idGymPrincipal,
+                    nombre_gimnasio = compania.nombre,
+                    qr_data = dni,
+                    suscripcion_activa = suscripcionObj,
+                    ultimas_entradas = entradas
+                });
+            }
+
+            return Ok(resultado);
+        }
     }
 
     public class CrearClienteRequest
