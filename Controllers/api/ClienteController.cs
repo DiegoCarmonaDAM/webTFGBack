@@ -355,6 +355,53 @@ namespace webTFGBack.Controllers
 
             return Ok(entradas);
         }
+
+        // GET /api/cliente/{id}/suscripciones
+        [HttpGet("{id}/suscripciones")]
+        public async Task<IActionResult> GetSuscripcionesPorDni(int id)
+        {
+            // 1. Obtener el DNI del cliente logueado
+            var cliente = await _context.Cliente
+                .Include(c => c.Persona)
+                .FirstOrDefaultAsync(c => c.id_cliente == id);
+
+            if (cliente == null)
+                return NotFound(new { message = "Cliente no encontrado" });
+
+            var dni = cliente.Persona!.documento_identidad;
+
+            // 2. Buscar todos los id_cliente que tengan ese mismo DNI
+            var idClientes = await _context.Cliente
+                .Where(c => c.Persona!.documento_identidad == dni)
+                .Select(c => c.id_cliente)
+                .ToListAsync();
+
+            // 3. Obtener todas sus suscripciones con nombre de gimnasio (Compania)
+            var hoy = DateOnly.FromDateTime(DateTime.Today);
+
+            var suscripciones = await _context.Suscripcion
+                .Include(s => s.Plan).ThenInclude(p => p!.Compania)
+                .Where(s => idClientes.Contains(s.id_cliente))
+                .OrderByDescending(s => s.fecha_inicio)
+                .Select(s => new
+                {
+                    id = s.id_suscripcion,
+                    plan = s.Plan!.nombre,
+                    tipo = s.Plan!.tipo,
+                    precio = s.Plan!.precio,
+                    gimnasio = s.Plan!.Compania!.nombre,
+                    fecha_inicio = s.fecha_inicio.ToString("dd/MM/yyyy"),
+                    fecha_fin = s.fecha_fin.ToString("dd/MM/yyyy"),
+                    accesos = s.accesos_restantes,
+                    estado = s.estado,
+                    dias_restantes = s.fecha_fin >= hoy
+                                     ? s.fecha_fin.DayNumber - hoy.DayNumber
+                                     : 0
+                })
+                .ToListAsync();
+
+            return Ok(suscripciones);
+        }
     }
 
     public class CrearClienteRequest
